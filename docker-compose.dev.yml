@@ -1,0 +1,5 @@
+version: "3.9"
+services:
+  rag-service:
+    build: .
+    ports: ["8000:8000"]
