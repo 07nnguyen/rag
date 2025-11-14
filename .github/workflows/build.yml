@@ -1,43 +1,44 @@
 name: Build & Push Docker (GHCR)
 
-
 on:
   push:
     branches: ["main"]
     tags: ["v*"]
-
 
 permissions:
   contents: read
   packages: write
   id-token: write
 
+env:
+  OWNER: ${{ github.repository_owner }}
+  IMAGE_SERVICE: ghcr.io/${{ github.repository_owner }}/rag-service
+  IMAGE_INGEST: ghcr.io/${{ github.repository_owner }}/rag-ingest
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-    OWNER: ${{ github.repository_owner }}
-    IMAGE_SERVICE: ghcr.io/${{ github.repository_owner }}/rag-service
-    IMAGE_INGEST: ghcr.io/${{ github.repository_owner }}/rag-ingest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.CR_PAT || github.token }}
+          username: ${{ env.OWNER }}
+          password: ${{ secrets.GHCR_PAT || github.token }}
 
       - name: Extract short SHA
         id: vars
         run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
-
-      - name: Build & push SERVICE
+      # === Build & push rag-service ===
+      - name: Build & push rag-service
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -46,11 +47,11 @@ jobs:
           tags: |
             ${{ env.IMAGE_SERVICE }}:latest
             ${{ env.IMAGE_SERVICE }}:${{ steps.vars.outputs.SHORT_SHA }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=rag-service
+          cache-to: type=gha,mode=max,scope=rag-service
 
-
-      - name: Build & push INGEST
+      # === Build & push rag-ingest ===
+      - name: Build & push rag-ingest
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -59,5 +60,5 @@ jobs:
           tags: |
             ${{ env.IMAGE_INGEST }}:latest
             ${{ env.IMAGE_INGEST }}:${{ steps.vars.outputs.SHORT_SHA }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=rag-ingest
+          cache-to: type=gha,mode=max,scope=rag-ingest
