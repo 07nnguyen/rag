@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+
+# torch CPU wheels để encode nhanh, tránh build từ source
+RUN pip install --only-binary=:all: --extra-index-url https://download.pytorch.org/whl/cpu \
+    torch==2.4.1+cpu torchvision==0.19.1+cpu
+
+# lib ingest
+RUN pip install --no-cache-dir \
+    qdrant-client==1.11.1 \
+    sentence-transformers==3.1.1 \
+    langchain-text-splitters==0.3.2 \
+    pypdf==4.3.1
