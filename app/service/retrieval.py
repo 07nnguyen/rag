@@ -51,6 +51,15 @@ def _filters(filters: Optional[Dict[str, Any]]) -> Optional[Filter]:
             for k, v in filters.items()
         ]
     )
+def qdrant_search(q: str, limit: int, filters: Optional[dict]):
+    embs = get_embedder().encode([q], normalize_embeddings=True)
+    return get_qdrant().search(
+        collection_name=COLLECTION,
+        query_vector=embs[0].tolist(),
+        limit=limit,
+        query_filter=_filters(filters),
+        with_payload=True,
+    )
 
 # -------------------------
 # IDP-aware retrieval
@@ -77,20 +86,39 @@ def compute_k(query: str, user_top_k: int) -> tuple[int, int]:
 # -------------------------
 # Vector search + rerank
 # -------------------------
+def dedup_by_path(docs: List[Dict[str, Any]], k: int) -> List[Dict[str, Any]]:
+    seen = set()
+    out = []
+    for d in docs:
+        meta = d.get("meta") or {}
+        path = meta.get("path") or "UNKNOWN_SOURCE"
+        if path in seen:
+            continue
+        seen.add(path)
+        out.append(d)
+        if len(out) >= k:
+            break
+    return out
 
 def search(query: str, top_k: int, filters: Optional[dict]) -> List[Dict[str, Any]]:
     search_k, final_k = compute_k(query, top_k)
 
-    embs = get_embedder().encode([query], normalize_embeddings=True)
-    hits = get_qdrant().search(
-        collection_name=COLLECTION,
-        query_vector=embs[0].tolist(),
-        limit=search_k,
-        query_filter=_filters(filters),
-        with_payload=True,
-    )
+    if is_idp_query(query):
+        # 4 intent để kéo đủ nhóm tài liệu
+        subqueries = [
+            query + " competency model people development organizational capability",
+            query + " performance management level rubric rating scale",
+            query + " training catalogue course workshop learning program",
+            query + " career pathway HRBP senior HR level progression",
+        ]
+        hits = []
+        per_q = max(search_k // len(subqueries), 4)
+        for sq in subqueries:
+            hits.extend(qdrant_search(sq, limit=per_q, filters=filters))
+    else:
+        hits = qdrant_search(query, limit=search_k, filters=filters)
 
-    # collect all docs first
+    # collect docs
     docs = []
     for h in hits:
         payload = h.payload or {}
@@ -110,6 +138,9 @@ def search(query: str, top_k: int, filters: Optional[dict]) -> List[Dict[str, An
         docs = [d for d, _ in ranked[:final_k]]
     else:
         docs = docs[:final_k]
+
+    # dedup theo path (bạn đã thêm)
+    docs = dedup_by_path(docs, final_k)
 
     return docs
 
